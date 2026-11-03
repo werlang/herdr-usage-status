@@ -1,0 +1,5 @@
+.DS_Store
+mods/*/gpui-kit.d.ts
+mods/*/jsconfig.json
+mods/*/.cache-*.json
+mods/*/__pycache__/
