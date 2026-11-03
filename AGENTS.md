@@ -14,7 +14,7 @@ O script copia `mods/usage-status` para a pasta live e roda `herdr-app check`. N
 
 ## Ligação no layout
 
-O layout pessoal `~/.config/herdr-app/layouts/main-ref.json` usa:
+O layout pessoal `~/.config/herdr-app/layouts/werlang.json` usa:
 
 ```json
 {

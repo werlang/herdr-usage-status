@@ -38,7 +38,7 @@ Rows use theme colors and the same green/yellow/red thresholds. The panel is com
 - OpenCode — `opencode api GET /api/experimental/usage/limits`.
 - `gauge.svg` and `codex.svg` are the status-bar icon and the Codex glyph.
 - `herdr` APIs: `exec`, `appHome`, `theme`, `spaces`, `agents`, `window`, `keys`, `run`; `Popover` from `gpui-base`.
-- The personal layout `main-ref.json` points the `status` block at `usage-status`.
+- The personal layout `werlang.json` points the `status` block at `usage-status`.
 
 ## Watch out
 

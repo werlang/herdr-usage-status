@@ -91,7 +91,7 @@ Other common placements:
 - Terminal right-click menu: root `"terminal_menu": "ref-menu"`
 - Panel: a block with `content.mod` inside a resizable column.
 
-If a layout reset removes the block, re-add it and switch to the personal layout (`herdr-app do layout.switch --name main-ref`).
+If a layout reset removes the block, re-add it and switch to the personal layout (`herdr-app do layout.switch --name werlang`).
 
 ## Local checks
 
