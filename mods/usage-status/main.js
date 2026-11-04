@@ -5,7 +5,14 @@ import { spaces, agents, theme, run, window, keys, exec, appHome } from "herdr";
 // Claude moves fastest (5-hour window), Copilot changes per request, and
 // OpenCode Go is a monthly allowance. Poll each at its own pace.
 const POLL = { claude: 300_000, antigravity: 600_000, codex: 120_000, copilot: 300_000, opencode: 120_000 };
-const STALE = { claude: 5 * 60_000, antigravity: 20 * 60_000, codex: 10 * 60_000, copilot: 15 * 60_000, opencode: 10 * 60_000 };
+const STALE = { claude: 10 * 60_000, antigravity: 20 * 60_000, codex: 10 * 60_000, copilot: 15 * 60_000, opencode: 10 * 60_000 };
+
+const HELPERS = {
+  claude: ["python3", "usage.py", "Claude"],
+  antigravity: ["python3", "antigravity-usage.py", "Antigravity"],
+  codex: ["python3", "codex-usage.py", "Codex"],
+  copilot: ["node", "copilot-usage.mjs", "Copilot"],
+};
 
 function clamp(value, min, max) {
   const number = Number.isFinite(value) ? value : 0;
@@ -48,57 +55,39 @@ const peakOf = (...values) => Math.max(...values.filter(Number.isFinite), 0);
 export default class UsageStatus extends View {
   init(_props, cx) {
     this.detailsOpen = false;
-    this.providers = {
-      claude: { data: null, at: 0, error: null, warning: null, loading: false },
-      antigravity: { data: null, at: 0, error: null, warning: null, loading: false },
-      codex: { data: null, at: 0, error: null, warning: null, loading: false },
-      copilot: { data: null, at: 0, error: null, warning: null, loading: false },
-      opencode: { data: null, at: 0, error: null, warning: null, loading: false },
-    };
-    this.refresh("claude", cx);
-    this.refresh("antigravity", cx);
-    this.refresh("codex", cx);
-    this.refresh("copilot", cx);
-    this.refresh("opencode", cx);
+    this.providers = Object.fromEntries(
+      Object.keys(POLL).map((name) => [
+        name,
+        { data: null, at: 0, error: null, warning: null, loading: false, startedAt: 0, generation: 0 },
+      ])
+    );
     for (const name of Object.keys(POLL)) {
+      this.refresh(name, cx);
       cx.timer.every(POLL[name], (cx) => this.refresh(name, cx));
     }
     // The reset countdown and the stale labels age even when a fetch fails.
     cx.timer.every(30_000, (cx) => cx.notify());
   }
 
-  async fetchClaude() {
-    const result = await exec("python3", [`${appHome()}/mods/usage-status/usage.py`]);
-    if (result.code !== 0) throw new Error(result.stderr.trim() || `Claude helper exited ${result.code}`);
+  /**
+   * Run a standalone usage helper script and parse its JSON output.
+   * @param {string} interpreter - Executable name ("python3" or "node").
+   * @param {string} scriptName - Script filename inside the mod directory.
+   * @param {string} label - Human-readable provider label for error messages.
+   * @returns {Promise<object>} Parsed helper output.
+   */
+  async runHelper(interpreter, scriptName, label) {
+    const result = await exec(interpreter, [`${appHome()}/mods/usage-status/${scriptName}`]);
+    if (result.code !== 0) throw new Error(result.stderr.trim() || `${label} helper exited ${result.code}`);
     const data = JSON.parse(result.stdout);
-    if (!data.ok) throw new Error(data.error || "Claude usage request failed");
+    if (!data.ok) throw new Error(data.error || `${label} usage request failed`);
     return data;
   }
 
-  async fetchAntigravity() {
-    const result = await exec("python3", [`${appHome()}/mods/usage-status/antigravity-usage.py`]);
-    if (result.code !== 0) throw new Error(result.stderr.trim() || `Antigravity helper exited ${result.code}`);
-    const data = JSON.parse(result.stdout);
-    if (!data.ok) throw new Error(data.error || "Antigravity usage request failed");
-    return data;
-  }
-
-  async fetchCodex() {
-    const result = await exec("python3", [`${appHome()}/mods/usage-status/codex-usage.py`]);
-    if (result.code !== 0) throw new Error(result.stderr.trim() || `Codex helper exited ${result.code}`);
-    const data = JSON.parse(result.stdout);
-    if (!data.ok) throw new Error(data.error || "Codex usage request failed");
-    return data;
-  }
-
-  async fetchCopilot() {
-    const result = await exec("node", [`${appHome()}/mods/usage-status/copilot-usage.mjs`]);
-    if (result.code !== 0) throw new Error(result.stderr.trim() || `Copilot helper exited ${result.code}`);
-    const data = JSON.parse(result.stdout);
-    if (!data.ok) throw new Error(data.error || "Copilot usage request failed");
-    return data;
-  }
-
+  /**
+   * Query the local OpenCode daemon for Go limit usage.
+   * @returns {Promise<object>} Usage data payload.
+   */
   async fetchOpencode() {
     const result = await exec("opencode", ["api", "GET", "/api/experimental/usage/limits"]);
     if (result.code !== 0) throw new Error(result.stderr.trim() || `OpenCode helper exited ${result.code}`);
@@ -107,27 +96,46 @@ export default class UsageStatus extends View {
     return body.data;
   }
 
+  /**
+   * Fetch current usage limits for a provider, managing timeouts and concurrency.
+   * @param {string} name - Provider identifier in POLL.
+   * @param {import("gpui-kit").AsyncContext} cx - Context for scheduling and state notification.
+   */
   refresh(name, cx) {
     const provider = this.providers[name];
-    if (provider.loading) return;
+    if (provider.loading) {
+      if (Date.now() - provider.startedAt < 60_000) return;
+      provider.error = "Refresh timed out";
+    }
+    const gen = ++provider.generation;
     provider.loading = true;
-    const load = name === "claude" ? () => this.fetchClaude()
-      : name === "antigravity" ? () => this.fetchAntigravity()
-        : name === "codex" ? () => this.fetchCodex()
-          : name === "copilot" ? () => this.fetchCopilot()
-            : () => this.fetchOpencode();
+    provider.startedAt = Date.now();
+
+    cx.timer.after(60_000, (cx) => {
+      if (provider.loading && provider.generation === gen) {
+        provider.error = "Refresh timed out";
+        cx.notify();
+      }
+    });
+
+    const helper = HELPERS[name];
+    const load = helper ? () => this.runHelper(...helper) : () => this.fetchOpencode();
     cx.spawn(async (cx) => {
       try {
         const data = await load();
+        if (provider.generation !== gen) return;
         provider.data = data;
         provider.at = data.fetched_at ? data.fetched_at * 1000 : Date.now();
         provider.error = null;
         provider.warning = data.warning ?? null;
       } catch (error) {
+        if (provider.generation !== gen) return;
         provider.error = String(error?.message ?? error);
       } finally {
-        provider.loading = false;
-        cx.notify();
+        if (provider.generation === gen) {
+          provider.loading = false;
+          cx.notify();
+        }
       }
     });
   }
@@ -219,17 +227,28 @@ export default class UsageStatus extends View {
     return reset ? `resets in ${reset}` : null;
   }
 
+  /**
+   * Build the compact status line used across provider detail sections.
+   * @param {object} provider - Provider state with data, at, error, warning.
+   * @param {number} staleMs - Milliseconds before data is marked stale.
+   * @param {string|null} [extra] - Provider-specific prefix tag (e.g. bucket name or plan).
+   * @returns {string} Formatted status line (e.g. "live", "stale 5m", "refresh failed").
+   */
+  statusLine(provider, staleMs, extra) {
+    const age = Date.now() - provider.at;
+    const stale = age > staleMs;
+    return [
+      extra,
+      stale ? ageLabel(age) : null,
+      provider.warning || provider.error ? "refresh failed" : null,
+    ].filter(Boolean).join(" · ") || "live";
+  }
+
   claudeDetails(t) {
     const provider = this.providers.claude;
     if (!provider.data) return null;
     const usage = provider.data;
-    const age = Date.now() - provider.at;
-    const stale = age > STALE.claude;
-    const status = [
-      usage.cached ? "cached" : null,
-      stale ? ageLabel(age) : null,
-      provider.warning || provider.error ? "refresh failed" : null,
-    ].filter(Boolean).join(" · ") || "live";
+    const status = this.statusLine(provider, STALE.claude, usage.cached ? "cached" : null);
     const rows = [];
     if (usage.five_hour) rows.push(this.detailsRow(t, "5-hour", usage.five_hour.utilization, this.resetNote(usage.five_hour)));
     if (usage.seven_day) rows.push(this.detailsRow(t, "7-day", usage.seven_day.utilization, this.resetNote(usage.seven_day)));
@@ -249,13 +268,7 @@ export default class UsageStatus extends View {
     const provider = this.providers.antigravity;
     if (!provider.data) return null;
     const usage = provider.data;
-    const age = Date.now() - provider.at;
-    const stale = age > STALE.antigravity;
-    const status = [
-      usage.bucket,
-      stale ? ageLabel(age) : null,
-      provider.warning || provider.error ? "refresh failed" : null,
-    ].filter(Boolean).join(" · ") || "live";
+    const status = this.statusLine(provider, STALE.antigravity, usage.bucket);
     const note = (window) => [
       window.remaining != null ? `${Math.round(window.remaining)}% left` : null,
       this.resetNote(window),
@@ -281,13 +294,7 @@ export default class UsageStatus extends View {
     const provider = this.providers.codex;
     if (!provider.data) return null;
     const usage = provider.data;
-    const age = Date.now() - provider.at;
-    const stale = age > STALE.codex;
-    const status = [
-      usage.plan ? `Codex ${usage.plan}` : null,
-      stale ? ageLabel(age) : null,
-      provider.warning || provider.error ? "refresh failed" : null,
-    ].filter(Boolean).join(" · ") || "live";
+    const status = this.statusLine(provider, STALE.codex, usage.plan ? `Codex ${usage.plan}` : null);
     const rows = [];
     if (usage.five_hour) rows.push(this.detailsRow(t, "5-hour", usage.five_hour.utilization, this.resetNote(usage.five_hour)));
     if (usage.seven_day) rows.push(this.detailsRow(t, "7-day", usage.seven_day.utilization, this.resetNote(usage.seven_day)));
@@ -299,13 +306,7 @@ export default class UsageStatus extends View {
     if (!provider.data) return null;
     const quota = provider.data.premium;
     if (!quota) return null;
-    const age = Date.now() - provider.at;
-    const stale = age > STALE.copilot;
-    const status = [
-      quota.unlimited ? "unlimited" : null,
-      stale ? ageLabel(age) : null,
-      provider.warning || provider.error ? "refresh failed" : null,
-    ].filter(Boolean).join(" · ") || "live";
+    const status = this.statusLine(provider, STALE.copilot, quota.unlimited ? "unlimited" : null);
     const rows = quota.unlimited ? [] : [
       this.detailsRow(t, "Premium", 100 - (quota.remaining ?? 100), `${quota.used ?? 0} of ${quota.entitlement ?? 0} used`),
     ];
@@ -317,14 +318,8 @@ export default class UsageStatus extends View {
     if (!provider.data) return null;
     const go = provider.data.go;
     if (!go) return null;
-    const age = Date.now() - provider.at;
-    const stale = age > STALE.opencode;
     const limited = [go.rolling, go.weekly, go.monthly].some((window) => window?.limited);
-    const status = [
-      limited ? "limited" : null,
-      stale ? ageLabel(age) : null,
-      provider.warning || provider.error ? "refresh failed" : null,
-    ].filter(Boolean).join(" · ") || "live";
+    const status = this.statusLine(provider, STALE.opencode, limited ? "limited" : null);
     const rows = [];
     for (const [label, window] of [["Rolling", go.rolling], ["Weekly", go.weekly], ["Monthly", go.monthly]]) {
       if (!window) continue;
@@ -357,7 +352,7 @@ export default class UsageStatus extends View {
     const space = spaces().find(s => s.active);
     const list = agents();
     const needs = list.filter(a => a.status === "blocked").length;
-    const label = (icon, text) => h_flex().gap(6).items_center().child(svg(`mods/workspace-chrome/${icon}.svg`).size(13)).child(text);
+    const label = (icon, text) => h_flex().gap(6).items_center().child(svg(`mods/usage-status/${icon}.svg`).size(13)).child(text);
     const button = this.usageButton(t);
     const usage = button && Popover.new("usage-details")
       .open(this.detailsOpen)

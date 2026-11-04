@@ -32,7 +32,22 @@ function premiumQuota(snapshots) {
   };
 }
 
+/**
+ * Arm a watchdog timer that forces a clean timeout exit if the SDK hangs.
+ * @param {number} [ms=20000] - Milliseconds before timing out.
+ * @returns {NodeJS.Timeout} The active watchdog timer.
+ */
+function armWatchdog(ms = 20_000) {
+  const timer = setTimeout(() => {
+    console.log(JSON.stringify({ ok: false, error: "Copilot quota timed out" }));
+    process.exit(0);
+  }, ms);
+  timer.unref();
+  return timer;
+}
+
 async function main() {
+  const watchdog = armWatchdog(20_000);
   let client;
   try {
     const sdk = await import(pathToFileURL(sdkEntry()).href);
@@ -43,6 +58,7 @@ async function main() {
   } catch (error) {
     console.log(JSON.stringify({ ok: false, error: String(error?.message ?? error).slice(0, 200) }));
   } finally {
+    clearTimeout(watchdog);
     try { await client?.stop(); } catch {}
   }
 }
