@@ -113,6 +113,7 @@ export default class UsageStatus extends View {
 
     cx.timer.after(60_000, (cx) => {
       if (provider.loading && provider.generation === gen) {
+        provider.loading = false;
         provider.error = "Refresh timed out";
         cx.notify();
       }
@@ -138,6 +139,12 @@ export default class UsageStatus extends View {
         }
       }
     });
+  }
+
+  /** Re-run every provider that is not already fetching, then redraw the spinner. */
+  refreshAll(cx) {
+    for (const name of Object.keys(POLL)) this.refresh(name, cx);
+    cx.notify();
   }
 
   // The palette key as actually bound, not a hardcoded one; without a
@@ -186,15 +193,31 @@ export default class UsageStatus extends View {
     return parts.length ? `Usage limits · ${parts.join(" · ")}` : "Usage limits";
   }
 
+  /** Whether any provider is fetching right now. */
+  isLoading() {
+    return Object.values(this.providers).some((provider) => provider.loading);
+  }
+
   /** The single status-bar control: one gauge, colored by the fullest provider. */
   usageButton(t) {
     const peak = this.peakUsage();
-    const loading = Object.values(this.providers).some((provider) => provider.loading);
-    if (peak === null && !loading) return null;
+    if (peak === null && !this.isLoading()) return null;
     const color = peak === null ? t.dim : peak >= 90 ? t.blocked : peak >= 70 ? t.working : t.muted;
     return h_flex().id("usage-meter").px(2).py(2).rounded(4).items_center().cursor_pointer().hover((el) => el.bg(t.hover))
       .tooltip(this.usageSummary())
       .child(svg("mods/usage-status/gauge.svg").size(14).flex_none().text_color(color));
+  }
+
+  /** Panel-header control that re-runs every provider and spins until the fetches settle. */
+  refreshButton(t) {
+    const loading = this.isLoading();
+    return h_flex().id("usage-refresh").p(3).rounded(4).items_center().cursor_pointer().hover((el) => el.bg(t.hover))
+      .tooltip(loading ? "Refreshing usage…" : "Refresh usage")
+      .accessibility_label(loading ? "Refreshing usage limits" : "Refresh usage limits")
+      .role("button")
+      .on_click((_event, cx) => this.refreshAll(cx))
+      .child(svg("mods/usage-status/refresh.svg").size(13).flex_none().text_color(loading ? t.working : t.muted)
+        .when(loading, (el) => el.spin(900)));
   }
 
   /** One labelled bar inside the details panel, with the reset on the same line. */
@@ -341,9 +364,10 @@ export default class UsageStatus extends View {
     return v_flex().w(360).max_h(600).overflow_y_scrollbar().p(12).gap(9)
       .bg(t.popover).border_1().border_color(t.border).rounded(9).shadow_lg()
       .text_size(11.5).text_color(t.muted)
-      .child(h_flex().items_center()
+      .child(h_flex().gap(8).items_center()
         .child(div().flex_1().text_size(12).text_color(t.foreground).child("Usage limits"))
-        .child(div().text_size(10).text_color(t.dim).child("click outside to close")))
+        .child(div().text_size(10).text_color(t.dim).child("click outside to close"))
+        .child(this.refreshButton(t)))
       .children(sections.length ? sections : [div().text_color(t.dim).child("No usage data yet")]);
   }
 
