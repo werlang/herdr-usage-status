@@ -12,7 +12,7 @@ One compact usage gauge in Herdr's bottom status bar. Click it for a small panel
 - **OpenCode Go** — rolling, weekly, and monthly allowances from the local OpenCode service.
 - **Codex** — 5-hour and 7-day windows when `~/.codex/auth.json` has a valid ChatGPT session; otherwise hidden.
 
-The gauge color follows the fullest provider: normal, yellow at 70%+, red at 90%+. Hovering shows a one-line summary; clicking opens the panel with used percentages, bars, `% left`, reset times, and `live` / `cached` / `stale` status.
+The gauge color follows the fullest provider: normal, yellow at 70%+, red at 90%+. Hovering shows a one-line summary; clicking opens the panel with used percentages, bars, `% left`, reset times, and `live` / `cached` / `stale` status. The refresh icon in the panel header spins while any provider is fetching and re-runs every provider when clicked.
 
 ## Requirements
 
@@ -50,7 +50,7 @@ herdr-app status
 
 ## Behavior
 
-- Claude polls every 5 minutes; Copilot every 5; Codex every 2; OpenCode every 2; Antigravity every 10.
+- Claude polls every 5 minutes; Copilot every 5; Codex every 2; OpenCode every 2; Antigravity every 10. The panel's refresh button starts an out-of-schedule fetch for every provider and spins until they finish; a fetch that hangs is marked failed after 60 seconds.
 - Successful results are cached in hidden `.cache-*.json` files. On failure the panel keeps the last known values and labels them `cached` / `stale`.
 - Claude rate limits (`429`) are expected; the cache avoids an `offline` bar.
 - The Codex helper never refreshes the token: the Codex CLI owns that rotation. Without a valid session, Codex is hidden.

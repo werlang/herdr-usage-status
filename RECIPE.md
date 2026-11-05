@@ -6,7 +6,7 @@ One compact gauge in Herdr's bottom status bar. Click it for a small panel with 
 
 ## What you see
 
-The 28 px status bar keeps the machine, branch, agent count, and palette hint. At the right there is one gauge icon instead of a row of meters. The icon is muted normally, yellow at 70%+ usage, red at 90%+. Hover it for a one-line summary; click it for the panel.
+The 28 px status bar keeps the machine, branch, agent count, and palette hint. At the right there is one gauge icon instead of a row of meters. The icon is muted normally, yellow at 70%+ usage, red at 90%+. Hover it for a one-line summary; click it for the panel. A refresh icon sits in the panel header: it spins while any provider is fetching, and clicking it re-runs every provider.
 
 The panel shows one line per limit window:
 
@@ -23,6 +23,7 @@ Rows use theme colors and the same green/yellow/red thresholds. The panel is com
 - Clicking the gauge opens the panel; clicking it again, clicking outside, or Escape closes it.
 - The gauge color is the highest used percentage across providers with data.
 - Each provider polls on its own schedule: Claude 5 min, Copilot 5 min, Codex 2 min, OpenCode 2 min, Antigravity 10 min.
+- The panel's refresh button fetches every provider immediately and spins while any request is in flight. A helper that hangs is marked failed after 60 seconds so the button stops spinning and can be retried.
 - Successful results are cached in hidden `.cache-*.json` files. On a failed refresh the panel keeps the last data and labels it `cached` / `stale`; the bar never shows an `offline` provider just because one request failed.
 - Claude `429` responses are handled with the cache; the helper retries on the next poll.
 - Codex is optional and is hidden when `~/.codex/auth.json` has no valid ChatGPT token. The helper never refreshes credentials.
@@ -36,7 +37,7 @@ Rows use theme colors and the same green/yellow/red thresholds. The panel is com
 - `copilot-usage.mjs` — starts the Copilot CLI SDK, calls `account.getQuota`, returns the premium-request snapshot.
 - `codex-usage.py` — `GET https://chatgpt.com/backend-api/wham/usage` with the local Codex OAuth token, handles current and legacy window shapes, caches, never refreshes the token.
 - OpenCode — `opencode api GET /api/experimental/usage/limits`.
-- `gauge.svg` and `codex.svg` are the status-bar icon and the Codex glyph.
+- `gauge.svg` is the status-bar icon, `refresh.svg` the panel refresh control, and `codex.svg` the Codex glyph.
 - `herdr` APIs: `exec`, `appHome`, `theme`, `spaces`, `agents`, `window`, `keys`, `run`; `Popover` from `gpui-base`.
 - The personal layout `werlang.json` points the `status` block at `usage-status`.
 
