@@ -116,8 +116,11 @@ export default class UsageStatus extends View {
 
   /**
    * The daily check mod-manager would do on open: fetch the herdr.dev mods
-   * index, compare each recorded install's commit with the listed one, and
-   * write the count (and the index, so the Mods screen opens with it).
+   * index and count installed mods whose published folder changed. The index
+   * only has each repo's latest commit, which moves for any change, so a
+   * moved commit is looked up on GitHub (one call per listing) and compared
+   * by the folder's git tree hash. Writes the count, and the index so the
+   * Mods screen opens with it; mod-manager owns the sources file.
    */
   async checkModUpdates() {
     const park = `${appHome()}/mods-disabled`;
@@ -125,17 +128,32 @@ export default class UsageStatus extends View {
     if (!res.ok) return;
     const index = await res.json();
     if (!Array.isArray(index?.mods)) return;
-    const head = new Map(index.mods.filter((e) => e && typeof e.fullName === "string" && typeof e.path === "string")
+    const listings = new Map(index.mods.filter((e) => e && typeof e.fullName === "string" && typeof e.path === "string")
       .map((e) => [`${e.fullName}/${e.path.replace(/\/+$/, "")}`.toLowerCase(), e]));
     let sources = {};
     try {
       sources = JSON.parse(await fs.readFile(`${park}/.mod-manager-sources.json`, "utf8"));
     } catch {}
+    const trees = new Map(); // listing key -> { folder: tree hash } at its latest commit
     const names = [];
     for (const [name, source] of Object.entries(sources ?? {})) {
-      const entry = head.get(source?.key);
+      const entry = listings.get(source?.key);
       if (!entry || !entry.modNames?.includes(source.modName) || entry.headCommit === source.commit) continue;
-      if (await fs.exists(`${appHome()}/mods/${name}`).catch(() => false)) names.push(name);
+      if (!(await fs.exists(`${appHome()}/mods/${name}`).catch(() => false))) continue;
+      let remote = source.remoteCommit === entry.headCommit ? source.remoteTree : undefined;
+      if (remote === undefined) {
+        if (!trees.has(source.key)) {
+          const path = entry.path.replace(/\/+$/, "");
+          const r = await fetch(`https://api.github.com/repos/${entry.fullName}/contents/${path ? `${path}/` : ""}mods?ref=${entry.headCommit}`, {
+            headers: { Accept: "application/vnd.github+json", "User-Agent": "herdr-mod-manager" },
+          }).catch(() => null);
+          if (!r?.ok) continue; // offline or rate-limited: no badge rather than a wrong one
+          const list = await r.json().catch(() => []);
+          trees.set(source.key, Object.fromEntries((Array.isArray(list) ? list : []).filter((i) => i?.type === "dir").map((i) => [i.name, i.sha])));
+        }
+        remote = trees.get(source.key)[source.modName] ?? null;
+      }
+      if (remote && remote !== source.tree) names.push(name);
     }
     const fetchedAt = Date.now();
     await fs.mkdir(`${park}/.mod-manager-cache`, { recursive: true });

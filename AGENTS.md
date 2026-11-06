@@ -4,7 +4,7 @@ Fonte da verdade do mod `usage-status`: um único ícone de medidor na status ba
 
 ## Integração opcional
 
-Se o mod `mod-manager` (repo `herdr-mod-manager`) estiver instalado, a barra mostra um ícone de puzzle à esquerda do medidor que abre a tela **Mods** (`mod.open mod-manager`). A detecção checa `mods/mod-manager/main.js` a cada 15 s; sem ele o ícone não aparece. O ícone mostra quantos updates de mods existem, lendo `mods-disabled/.mod-manager-updates.json`; se esse arquivo tiver mais de um dia, a barra busca `https://assets.herdr.dev/mods/index.json` e o reescreve (uma tentativa por hora no máximo), usando `.mod-manager-sources.json`. O formato é do `mod-manager`: mudou lá, mude aqui.
+Se o mod `mod-manager` (repo `herdr-mod-manager`) estiver instalado, a barra mostra um ícone de puzzle à esquerda do medidor que abre a tela **Mods** (`mod.open mod-manager`). A detecção checa `mods/mod-manager/main.js` a cada 15 s; sem ele o ícone não aparece. O ícone mostra quantos updates de mods existem, lendo `mods-disabled/.mod-manager-updates.json`; se esse arquivo tiver mais de um dia, a barra busca `https://assets.herdr.dev/mods/index.json` e o reescreve (uma tentativa por hora no máximo), usando `.mod-manager-sources.json`. Conta só mods cuja pasta mudou: quando o commit do repo mudou, consulta o hash da pasta no GitHub (`contents/<path>/mods?ref=<commit>`) e compara com o `tree` registrado. Offline ou com rate limit, não conta. Não escreve o sources (é do `mod-manager`). O formato é do `mod-manager`: mudou lá, mude aqui.
 
 ## Regra: sempre atualizar a pasta live do Herdr
 
