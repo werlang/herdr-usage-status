@@ -16,7 +16,7 @@ The gauge color follows the fullest provider: normal, yellow at 70%+, red at 90%
 
 ## Mods button
 
-When the optional [`mod-manager`](https://github.com/werlang/herdr-mod-manager) mod is installed, a puzzle icon sits left of the gauge; clicking it opens the **Mods** screen (`mod.open mod-manager`), and its tooltip shows the bound key. Without that mod the icon isn't drawn. Detection is a check for `mods/mod-manager/main.js`, repeated every 15 seconds.
+When the optional [`mod-manager`](https://github.com/werlang/herdr-mod-manager) mod is installed, a puzzle icon sits left of the gauge; clicking it opens the **Mods** screen (`mod.open mod-manager`), and its tooltip shows the bound key. Without that mod the icon isn't drawn. Detection is a check for `mods/mod-manager/main.js`, repeated every 15 seconds. The icon turns accent-colored with a count when mods installed from herdr.dev have updates. Once a day (even while the Mods screen stays closed) it fetches the herdr.dev mods index to recount them.
 
 ## Requirements
 
