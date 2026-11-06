@@ -7,6 +7,8 @@ import * as fs from "fs/promises";
 // OpenCode Go is a monthly allowance. Poll each at its own pace.
 const POLL = { claude: 300_000, antigravity: 600_000, codex: 120_000, copilot: 300_000, opencode: 120_000 };
 const STALE = { claude: 10 * 60_000, antigravity: 20 * 60_000, codex: 10 * 60_000, copilot: 15 * 60_000, opencode: 10 * 60_000 };
+/** How often the Mods button checks herdr.dev for mod updates (mod-manager does it on open too). */
+const DAY_MS = 24 * 60 * 60 * 1000;
 
 const HELPERS = {
   claude: ["python3", "usage.py", "Claude"],
@@ -72,6 +74,7 @@ export default class UsageStatus extends View {
     // (herdr-mod-manager repo) is installed; rechecked so a sync or an
     // uninstall shows up without reloading the bar.
     this.hasModManager = false;
+    this.modUpdates = 0;
     this.checkModManager(cx);
     cx.timer.every(15_000, (cx) => this.checkModManager(cx));
   }
@@ -83,21 +86,74 @@ export default class UsageStatus extends View {
   checkModManager(cx) {
     cx.spawn(async (cx) => {
       const has = await fs.exists(`${appHome()}/mods/mod-manager/main.js`).catch(() => false);
-      if (has !== this.hasModManager) {
+      const updates = has ? await this.readModUpdates() : null;
+      const count = updates?.count ?? 0;
+      if (has !== this.hasModManager || count !== this.modUpdates) {
         this.hasModManager = has;
+        this.modUpdates = count;
+        cx.notify();
+      }
+      // Once a day, even while the Mods screen stays closed, look for updates
+      // to mods installed from herdr.dev (retrying at most hourly when offline).
+      const checkedAt = Date.parse(updates?.checkedAt ?? "") || 0;
+      if (has && Date.now() - checkedAt >= DAY_MS && Date.now() - (this.modCheckTriedAt ?? 0) >= 3_600_000) {
+        this.modCheckTriedAt = Date.now();
+        await this.checkModUpdates().catch(() => null);
+        this.modUpdates = (await this.readModUpdates())?.count ?? 0;
         cx.notify();
       }
     });
+  }
+
+  /** mod-manager's last update check: `{ checkedAt, count, names }`, or null. */
+  async readModUpdates() {
+    try {
+      return JSON.parse(await fs.readFile(`${appHome()}/mods-disabled/.mod-manager-updates.json`, "utf8"));
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * The daily check mod-manager would do on open: fetch the herdr.dev mods
+   * index, compare each recorded install's commit with the listed one, and
+   * write the count (and the index, so the Mods screen opens with it).
+   */
+  async checkModUpdates() {
+    const park = `${appHome()}/mods-disabled`;
+    const res = await fetch("https://assets.herdr.dev/mods/index.json");
+    if (!res.ok) return;
+    const index = await res.json();
+    if (!Array.isArray(index?.mods)) return;
+    const head = new Map(index.mods.filter((e) => e && typeof e.fullName === "string" && typeof e.path === "string")
+      .map((e) => [`${e.fullName}/${e.path.replace(/\/+$/, "")}`.toLowerCase(), e]));
+    let sources = {};
+    try {
+      sources = JSON.parse(await fs.readFile(`${park}/.mod-manager-sources.json`, "utf8"));
+    } catch {}
+    const names = [];
+    for (const [name, source] of Object.entries(sources ?? {})) {
+      const entry = head.get(source?.key);
+      if (!entry || !entry.modNames?.includes(source.modName) || entry.headCommit === source.commit) continue;
+      if (await fs.exists(`${appHome()}/mods/${name}`).catch(() => false)) names.push(name);
+    }
+    const fetchedAt = Date.now();
+    await fs.mkdir(`${park}/.mod-manager-cache`, { recursive: true });
+    await fs.writeFile(`${park}/.mod-manager-cache/index.json`, JSON.stringify({ fetchedAt, index }));
+    await fs.writeFile(`${park}/.mod-manager-updates.json`, `${JSON.stringify({ checkedAt: new Date(fetchedAt).toISOString(), count: names.length, names: names.sort() }, null, 2)}\n`);
   }
 
   /** Status-bar button that opens the Mods screen (mod-manager), with its bound key in the tooltip. */
   modsButton(t) {
     if (!this.hasModManager) return null;
     const key = this.keyLabel("mod.open:mod-manager");
-    return h_flex().id("mods-button").px(2).py(2).rounded(4).items_center().cursor_pointer().hover((el) => el.bg(t.hover))
-      .tooltip(key ? `Mods  ${key}` : "Mods")
+    const n = this.modUpdates ?? 0;
+    const label = n ? `Mods · ${n} update${n === 1 ? "" : "s"}` : "Mods";
+    return h_flex().id("mods-button").px(2).py(2).gap(3).rounded(4).items_center().cursor_pointer().hover((el) => el.bg(t.hover))
+      .tooltip(key ? `${label}  ${key}` : label)
       .on_click(() => run("mod.open", { name: "mod-manager" }))
-      .child(svg("mods/usage-status/puzzle.svg").size(13).flex_none().text_color(t.muted));
+      .child(svg("mods/usage-status/puzzle.svg").size(13).flex_none().text_color(n ? t.accent : t.muted))
+      .when(n > 0, (el) => el.child(div().flex_none().text_size(10.5).text_color(t.accent).child(String(n))));
   }
 
   /**
