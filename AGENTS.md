@@ -2,6 +2,10 @@
 
 Fonte da verdade do mod `usage-status`: um único ícone de medidor na status bar do Herdr. Clicando nele abre o painel compacto com os limites de cada assinatura.
 
+## Integração opcional
+
+Se o mod `mod-manager` (repo `herdr-mod-manager`) estiver instalado, a barra mostra um ícone de puzzle à esquerda do medidor que abre a tela **Mods** (`mod.open mod-manager`). A detecção checa `mods/mod-manager/main.js` a cada 15 s; sem ele o ícone não aparece.
+
 ## Regra: sempre atualizar a pasta live do Herdr
 
 O Herdr lê os mods de `~/.config/herdr-app/mods/<nome>`. Depois de **qualquer** mudança aqui:

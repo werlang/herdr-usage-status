@@ -18,6 +18,8 @@ The panel shows one line per limit window:
 
 Rows use theme colors and the same green/yellow/red thresholds. The panel is compact, one line per window, and scrolls only if a provider adds many windows.
 
+With the optional `mod-manager` mod installed, a puzzle icon left of the gauge opens the **Mods** screen; without it, nothing is drawn.
+
 ## How it behaves
 
 - Clicking the gauge opens the panel; clicking it again, clicking outside, or Escape closes it.
@@ -37,7 +39,7 @@ Rows use theme colors and the same green/yellow/red thresholds. The panel is com
 - `copilot-usage.mjs` — starts the Copilot CLI SDK, calls `account.getQuota`, returns the premium-request snapshot.
 - `codex-usage.py` — `GET https://chatgpt.com/backend-api/wham/usage` with the local Codex OAuth token, handles current and legacy window shapes, caches, never refreshes the token.
 - OpenCode — `opencode api GET /api/experimental/usage/limits`.
-- `gauge.svg` is the status-bar icon, `refresh.svg` the panel refresh control, and `codex.svg` the Codex glyph.
+- `gauge.svg` is the status-bar icon, `refresh.svg` the panel refresh control, and `codex.svg` the Codex glyph, `puzzle.svg` the Mods button.
 - `herdr` APIs: `exec`, `appHome`, `theme`, `spaces`, `agents`, `window`, `keys`, `run`; `Popover` from `gpui-base`.
 - The personal layout `werlang.json` points the `status` block at `usage-status`.
 

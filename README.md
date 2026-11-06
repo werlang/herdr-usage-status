@@ -14,6 +14,10 @@ One compact usage gauge in Herdr's bottom status bar. Click it for a small panel
 
 The gauge color follows the fullest provider: normal, yellow at 70%+, red at 90%+. Hovering shows a one-line summary; clicking opens the panel with used percentages, bars, `% left`, reset times, and `live` / `cached` / `stale` status. The refresh icon in the panel header spins while any provider is fetching and re-runs every provider when clicked.
 
+## Mods button
+
+When the optional [`mod-manager`](https://github.com/werlang/herdr-mod-manager) mod is installed, a puzzle icon sits left of the gauge; clicking it opens the **Mods** screen (`mod.open mod-manager`), and its tooltip shows the bound key. Without that mod the icon isn't drawn. Detection is a check for `mods/mod-manager/main.js`, repeated every 15 seconds.
+
 ## Requirements
 
 - macOS for the Claude Keychain read (`security`). The other providers are optional.

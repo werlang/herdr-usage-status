@@ -1,6 +1,7 @@
 import { View, div, svg, image } from "gpui-kit";
 import { h_flex, v_flex, Popover } from "gpui-base";
 import { spaces, agents, theme, run, window, keys, exec, appHome } from "herdr";
+import * as fs from "fs/promises";
 
 // Claude moves fastest (5-hour window), Copilot changes per request, and
 // OpenCode Go is a monthly allowance. Poll each at its own pace.
@@ -67,6 +68,36 @@ export default class UsageStatus extends View {
     }
     // The reset countdown and the stale labels age even when a fetch fails.
     cx.timer.every(30_000, (cx) => cx.notify());
+    // The Mods button shows only while the optional mod-manager mod
+    // (herdr-mod-manager repo) is installed; rechecked so a sync or an
+    // uninstall shows up without reloading the bar.
+    this.hasModManager = false;
+    this.checkModManager(cx);
+    cx.timer.every(15_000, (cx) => this.checkModManager(cx));
+  }
+
+  /**
+   * Detects the optional mod-manager mod and redraws when that changes.
+   * @param {import("gpui-kit").AsyncContext} cx
+   */
+  checkModManager(cx) {
+    cx.spawn(async (cx) => {
+      const has = await fs.exists(`${appHome()}/mods/mod-manager/main.js`).catch(() => false);
+      if (has !== this.hasModManager) {
+        this.hasModManager = has;
+        cx.notify();
+      }
+    });
+  }
+
+  /** Status-bar button that opens the Mods screen (mod-manager), with its bound key in the tooltip. */
+  modsButton(t) {
+    if (!this.hasModManager) return null;
+    const key = this.keyLabel("mod.open:mod-manager");
+    return h_flex().id("mods-button").px(2).py(2).rounded(4).items_center().cursor_pointer().hover((el) => el.bg(t.hover))
+      .tooltip(key ? `Mods  ${key}` : "Mods")
+      .on_click(() => run("mod.open", { name: "mod-manager" }))
+      .child(svg("mods/usage-status/puzzle.svg").size(13).flex_none().text_color(t.muted));
   }
 
   /**
@@ -150,12 +181,20 @@ export default class UsageStatus extends View {
   // The palette key as actually bound, not a hardcoded one; without a
   // binding the hint stays useful ("commands") instead of lying.
   hint(t) {
+    const key = this.keyLabel("app.palette");
+    return key ? `${key}  commands` : "commands";
+  }
+
+  /**
+   * The global key bound to an action, as the platform writes it (⇧⌘P), or null.
+   * @param {string} action e.g. "app.palette" or "mod.open:mod-manager"
+   */
+  keyLabel(action) {
     const mac = window()?.platform === "macos";
     const mod = { cmd: mac ? "⌘" : "Ctrl+", ctrl: mac ? "⌃" : "Ctrl+", shift: mac ? "⇧" : "Shift+", alt: mac ? "⌥" : "Alt+", option: mac ? "⌥" : "Alt+" };
-    const b = keys().find((k) => k.section === "global" && k.action === "app.palette");
+    const b = keys().find((k) => k.section === "global" && k.action === action);
     const parts = b && b.keys.endsWith("--") ? [...b.keys.slice(0, -2).split("-"), "-"] : b?.keys.split("-");
-    const key = parts && parts.map((p) => mod[p.toLowerCase()] ?? p.toUpperCase()).join("");
-    return key ? `${key}  commands` : "commands";
+    return parts ? parts.map((p) => mod[p.toLowerCase()] ?? p.toUpperCase()).join("") : null;
   }
 
   /** The highest used percentage across every provider that has data. */
@@ -390,6 +429,7 @@ export default class UsageStatus extends View {
       .child(h_flex().gap(6).items_center().child(div().size(6).rounded(3).bg(t.dim)).child(`${list.length} agents`)
         .when(needs > 0, el => el.child(div().text_color(t.blocked).child(`· ${needs} needs you`))))
       .child(div().flex_1())
+      .when(Boolean(this.modsButton(t)), el => el.child(this.modsButton(t)))
       .when(Boolean(usage), el => el.child(usage))
       .child(div().id("palette").text_color(t.dim).on_click(() => run("app.palette")).child(this.hint(t)));
   }
