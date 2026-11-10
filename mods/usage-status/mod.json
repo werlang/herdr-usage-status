@@ -1,7 +1,8 @@
 {
   "name": "usage-status",
-  "version": "0.1.0",
-  "description": "Status-bar gauge for Claude, Copilot, Codex, OpenCode Go, and Antigravity usage",
+  "version": "0.1.1",
+  "title": "Usage Status",
+  "description": "Status-bar gauge for Claude, Copilot, Codex, OpenCode Go, and Antigravity usage limits",
   "place": "none",
   "cloned_from": {
     "name": "workspace-status",
