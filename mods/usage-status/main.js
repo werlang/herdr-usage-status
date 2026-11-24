@@ -494,7 +494,7 @@ export default class UsageStatus extends View {
     const usage = button && Popover.new("usage-details")
       .open(this.detailsOpen)
       .on_open_change((open, cx) => { this.detailsOpen = open; cx.notify(); })
-      .anchor("bottom_right")
+      .anchor("bottom_left")
       .trigger(button)
       .content(this.detailsPanel(t));
     return h_flex().size_full().px(14).gap(16).items_center().bg(t.chrome).border_t(1).border_color(t.border).text_size(11.8).text_color(t.muted)
@@ -502,9 +502,9 @@ export default class UsageStatus extends View {
       .when(Boolean(space?.branch), el => el.child(label("branch", space.branch)))
       .child(h_flex().gap(6).items_center().child(div().size(6).rounded(3).bg(t.dim)).child(`${list.length} agents`)
         .when(needs > 0, el => el.child(div().text_color(t.blocked).child(`· ${needs} needs you`))))
-      .child(div().flex_1())
       .when(Boolean(this.modsButton(t)), el => el.child(this.modsButton(t)))
       .when(Boolean(usage), el => el.child(usage))
+      .child(div().flex_1())
       .child(div().id("palette").text_color(t.dim).on_click(() => run("app.palette")).child(this.hint(t)));
   }
 }
