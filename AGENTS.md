@@ -1,24 +1,24 @@
 # herdr-usage-status
 
-Fonte da verdade do mod `usage-status`: um único ícone de medidor na status bar do Herdr. Clicando nele abre o painel compacto com os limites de cada assinatura.
+Source of truth for the `usage-status` mod: a single gauge icon in Herdr's status bar. Clicking it opens a compact panel with each subscription's limits.
 
-## Integração opcional
+## Optional integration
 
-Se o mod `mod-manager` (repo `herdr-mod-manager`) estiver instalado, a barra mostra um ícone de puzzle à esquerda do medidor que abre a tela **Mods** (`mod.open mod-manager`). A detecção checa `mods/mod-manager/main.js` a cada 15 s; sem ele o ícone não aparece. O ícone mostra quantos updates de mods existem, lendo `mods-disabled/.mod-manager-updates.json`; se esse arquivo tiver mais de um dia, a barra busca `https://assets.herdr.dev/mods/index.json` e o reescreve (uma tentativa por hora no máximo), usando `.mod-manager-sources.json`. Conta só mods cuja pasta mudou: quando o commit do repo mudou, consulta o hash da pasta no GitHub (`contents/<path>/mods?ref=<commit>`) e compara com o `tree` registrado. Offline ou com rate limit, não conta. Não escreve o sources (é do `mod-manager`). O formato é do `mod-manager`: mudou lá, mude aqui.
+If the `mod-manager` mod (`herdr-mod-manager` repo) is installed, the bar shows a puzzle icon to the left of the gauge that opens the **Mods** screen (`mod.open mod-manager`). Detection checks `mods/mod-manager/main.js` every 15 s; without it the icon does not appear. The icon displays how many mod updates are available by reading `mods-disabled/.mod-manager-updates.json`; if that file is older than a day, the bar fetches `https://assets.herdr.dev/mods/index.json` and rewrites it (at most one attempt per hour), using `.mod-manager-sources.json`. It only counts mods whose folder changed: when the repo commit changed, it queries the folder hash on GitHub (`contents/<path>/mods?ref=<commit>`) and compares it with the recorded `tree`. When offline or rate-limited, it does not count. It does not write sources (owned by `mod-manager`). The format belongs to `mod-manager`: if changed there, update it here too.
 
-## Regra: sempre atualizar a pasta live do Herdr
+## Rule: always update Herdr's live folder
 
-O Herdr lê os mods de `~/.config/herdr-app/mods/<nome>`. Depois de **qualquer** mudança aqui:
+Herdr loads mods from `~/.config/herdr-app/mods/<name>`. After **any** change here:
 
 ```sh
 ./sync.sh
 ```
 
-O script copia `mods/usage-status` para a pasta live e roda `herdr-app check`. Não edite a pasta live diretamente.
+The script copies `mods/usage-status` to the live folder and runs `herdr-app check`. Do not edit the live folder directly.
 
-## Ligação no layout
+## Layout wiring
 
-O layout pessoal `~/.config/herdr-app/layouts/werlang.json` usa:
+The personal layout `~/.config/herdr-app/layouts/werlang.json` uses:
 
 ```json
 {
@@ -29,14 +29,14 @@ O layout pessoal `~/.config/herdr-app/layouts/werlang.json` usa:
 }
 ```
 
-Mantenha o nome da pasta `usage-status`: o `main.js` referencia `mods/usage-status/...` (helpers e SVGs) por caminho absoluto a partir de `~/.config/herdr-app`.
+Keep the folder name `usage-status`: `main.js` references `mods/usage-status/...` (helpers and SVGs) by absolute path from `~/.config/herdr-app`.
 
-## Dados e credenciais
+## Data and credentials
 
-Os helpers leem credenciais locais (Keychain do Claude, `~/.codex/auth.json`) e chamam endpoints/CLIs locais. Nenhuma credencial é gravada no repositório. Os caches `.cache-*.json` são locais e ficam no `.gitignore`.
+The helpers read local credentials (Claude Keychain, `~/.codex/auth.json`) and call local endpoints/CLIs. No credentials are stored in the repository. `.cache-*.json` files are local and listed in `.gitignore`.
 
-Provedores sem dados ficam ocultos no painel (Codex, por exemplo, só aparece quando houver sessão válida).
+Providers without data are hidden in the panel (Codex, for example, only appears when a valid session exists).
 
 ## Skill
 
-A skill `herdr-publish` está em `.agents/skills/herdr-publish/SKILL.md`. Ela cobre validação, sync, `RECIPE.md`/`preview.png` e publicação em `herdr.dev/mods` com o tópico `herdr-mod`.
+The `herdr-publish` skill is in `.agents/skills/herdr-publish/SKILL.md`. It covers validation, sync, `RECIPE.md`/`preview.png`, and publishing to `herdr.dev/mods` with the `herdr-mod` topic.
