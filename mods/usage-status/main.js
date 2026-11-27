@@ -465,6 +465,48 @@ export default class UsageStatus extends View {
     return rows.length ? this.detailsSection(t, "icons/opencode.svg", t.muted, "OpenCode Go", status, rows) : null;
   }
 
+  /**
+   * The tallest the usage panel can be and still fit in the window above
+   * the 28 px status bar. `window` is shadowed by herdr's import, so the
+   * GPUI window is read from globalThis.
+   */
+  panelMaxHeight() {
+    try {
+      const height = globalThis.window?.viewport_size?.()?.height;
+      if (Number.isFinite(height)) return clamp(height - 28 - 24, 160, 900);
+    } catch {}
+    return 420;
+  }
+
+  /**
+   * Approximate height of the provider sections, in px, built from the same
+   * data the sections render. Only used to decide whether the panel needs a
+   * fixed-height scroll area; it errs high so the scroll kicks in early.
+   */
+  sectionsHeight() {
+    const p = this.providers;
+    const ROW = 22, HEAD = 22, GAP = 9, LABEL = 18;
+    const heights = [];
+    const windows = (d) => [d?.five_hour, d?.seven_day].filter(Boolean).length;
+    if (p.claude.data && windows(p.claude.data)) heights.push(HEAD + windows(p.claude.data) * ROW);
+    if (p.antigravity.data) {
+      const d = p.antigravity.data;
+      let h = windows(d) * ROW;
+      for (const bucket of d.buckets ?? []) {
+        const n = windows(bucket);
+        if (n) h += LABEL + n * ROW;
+      }
+      if (h) heights.push(HEAD + h);
+    }
+    if (p.codex.data && windows(p.codex.data)) heights.push(HEAD + windows(p.codex.data) * ROW);
+    if (p.copilot.data?.premium) heights.push(HEAD + (p.copilot.data.premium.unlimited ? 0 : ROW));
+    if (p.opencode.data?.go) {
+      const go = p.opencode.data.go;
+      heights.push(HEAD + [go.rolling, go.weekly, go.monthly].filter(Boolean).length * ROW);
+    }
+    return heights.reduce((sum, h) => sum + h, 0) + Math.max(0, heights.length - 1) * GAP;
+  }
+
   /** The click-to-open surface: only providers with real data, every window. */
   detailsPanel(t) {
     const sections = [
@@ -474,14 +516,24 @@ export default class UsageStatus extends View {
       this.copilotDetails(t),
       this.opencodeDetails(t),
     ].filter(Boolean);
-    return v_flex().w(360).max_h(600).overflow_y_scrollbar().p(12).gap(9)
+    // The panel grows with its content up to the window's height. Only when
+    // the content would not fit does the section list get a fixed height
+    // and an always-visible scrollbar: a scroll area here needs a definite
+    // height (a max_h alone squeezes and clips its rows instead).
+    const scrollMax = this.panelMaxHeight() - 24 - 9 - 24;
+    const scrolls = this.sectionsHeight() > scrollMax;
+    const body = v_flex().flex_none().px(12).gap(9)
+      .children(sections.length ? sections : [div().text_color(t.dim).child("No usage data yet")]);
+    return v_flex().w(360).py(12).gap(9)
       .bg(t.popover).border_1().border_color(t.border).rounded(9).shadow_lg()
       .text_size(11.5).text_color(t.muted)
-      .child(h_flex().gap(8).items_center()
+      .child(h_flex().flex_none().px(12).gap(8).items_center()
         .child(div().flex_1().text_size(12).text_color(t.foreground).child("Usage limits"))
         .child(div().text_size(10).text_color(t.dim).child("click outside to close"))
         .child(this.refreshButton(t)))
-      .children(sections.length ? sections : [div().text_color(t.dim).child("No usage data yet")]);
+      .child(scrolls
+        ? v_flex().id("usage-details-scroll").flex_none().h(scrollMax).overflow_y_scrollbar().mode("always").child(body)
+        : body);
   }
 
   render() {
