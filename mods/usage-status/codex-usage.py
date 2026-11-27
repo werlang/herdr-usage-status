@@ -18,6 +18,7 @@ import urllib.request
 from datetime import datetime, timezone
 
 USAGE_URL = "https://chatgpt.com/backend-api/wham/usage"
+RESET_CREDITS_URL = "https://chatgpt.com/backend-api/wham/rate-limit-reset-credits"
 CACHE_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".cache-codex.json")
 CACHE_MAX_AGE = 7 * 24 * 3600
 
@@ -126,6 +127,43 @@ def bucket(rate):
     return result
 
 
+def reset_credits(body, headers):
+    """Banked rate-limit resets: the count from the usage body, plus each
+    credit's details from the reset-credits list when any are available.
+
+    A failed details request keeps the count, so the badge still shows.
+    """
+    summary = body.get("rate_limit_reset_credits")
+    if not isinstance(summary, dict):
+        return None
+    available = int(summary.get("available_count") or 0)
+    result = {"available": available, "credits": None}
+    if available <= 0:
+        result["credits"] = []
+        return result
+    try:
+        request = urllib.request.Request(RESET_CREDITS_URL, headers=headers)
+        with urllib.request.urlopen(request, timeout=15) as response:
+            listing = json.loads(response.read().decode("utf-8"))
+        result["credits"] = [
+            {
+                "id": credit.get("id"),
+                "title": credit.get("title"),
+                "description": credit.get("description"),
+                "type": credit.get("reset_type"),
+                "status": credit.get("status"),
+                "supported": credit.get("is_supported_by_plan", True),
+                "granted_at": credit.get("granted_at"),
+                "expires_at": credit.get("expires_at"),
+            }
+            for credit in listing.get("credits") or []
+            if isinstance(credit, dict) and credit.get("id")
+        ]
+    except Exception:  # noqa: BLE001 - details are optional; the count is enough for the badge
+        pass
+    return result
+
+
 def read_cache():
     """Return the last successful summary, if it is recent enough."""
     try:
@@ -180,7 +218,12 @@ def main():
         rate = body.get("rate_limit") or body.get("rate_limits") or {}
         if not isinstance(rate, dict):
             rate = {}
-        summary = {"plan": body.get("plan_type"), **bucket(rate)}
+        summary = {
+            "plan": body.get("plan_type"),
+            "limit_reached": bool(rate.get("limit_reached")),
+            **bucket(rate),
+            "reset_credits": reset_credits(body, headers),
+        }
         fetched_at = time.time()
         write_cache(summary, fetched_at)
         print(json.dumps({"ok": True, "fetched_at": fetched_at, **summary}))

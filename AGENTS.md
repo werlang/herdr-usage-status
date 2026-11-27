@@ -37,6 +37,8 @@ The helpers read local credentials (Claude Keychain, `~/.codex/auth.json`) and c
 
 Providers without data are hidden in the panel (Codex, for example, only appears when a valid session exists).
 
+`codex-reset.py` is the only helper that changes account state: it redeems a banked Codex reset through `codex app-server` (`account/rateLimitResetCredit/consume`), and runs only after the user confirms on a reset card in the Codex section of the usage panel. Never call it while testing; use the read-only `account/rateLimits/read` RPC to check the app-server path.
+
 ## Skill
 
 The `herdr-publish` skill is in `.agents/skills/herdr-publish/SKILL.md`. It covers validation, sync, `RECIPE.md`/`preview.png`, and publishing to `herdr.dev/mods` with the `herdr-mod` topic.

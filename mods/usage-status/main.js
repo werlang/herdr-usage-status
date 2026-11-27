@@ -1,6 +1,6 @@
 import { View, div, svg, image } from "gpui-kit";
 import { h_flex, v_flex, Popover } from "gpui-base";
-import { spaces, agents, theme, run, window, keys, exec, appHome } from "herdr";
+import { spaces, agents, theme, run, window, keys, exec, appHome, notify } from "herdr";
 import * as fs from "fs/promises";
 
 // Claude moves fastest (5-hour window), Copilot changes per request, and
@@ -55,9 +55,40 @@ function ageLabel(age) {
 
 const peakOf = (...values) => Math.max(...values.filter(Number.isFinite), 0);
 
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+/** "Dec 12, 18:58" in local time, without relying on Intl. */
+function dateLabel(value) {
+  const date = new Date(value);
+  if (!Number.isFinite(date.getTime())) return null;
+  const pad = (n) => String(n).padStart(2, "0");
+  return `${MONTHS[date.getMonth()]} ${date.getDate()}, ${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
+/** Readable name for a banked reset's `reset_type`. */
+function resetTypeLabel(type) {
+  if (type === "codex_rate_limits") return "Codex rate limits";
+  return String(type ?? "unknown").replace(/_/g, " ");
+}
+
+/** What a consume outcome means, as a toast. */
+const RESET_OUTCOMES = {
+  reset: { level: "success", text: "Codex limits reset" },
+  nothingToReset: { level: "info", text: "Nothing to reset: no Codex window is eligible right now. The reset was kept." },
+  noCredit: { level: "warning", text: "That reset is no longer available" },
+  alreadyRedeemed: { level: "info", text: "That reset was already redeemed" },
+};
+
 export default class UsageStatus extends View {
   init(_props, cx) {
     this.detailsOpen = false;
+    // Banked Codex resets, inside the usage panel: whether the cards are
+    // expanded, which credit awaits confirmation, which is being redeemed,
+    // and the last outcome shown above the cards.
+    this.resetsExpanded = false;
+    this.resetConfirm = null;
+    this.resetBusy = null;
+    this.resetMessage = null;
     this.providers = Object.fromEntries(
       Object.keys(POLL).map((name) => [
         name,
@@ -345,7 +376,7 @@ export default class UsageStatus extends View {
   }
 
   /** A provider heading followed by its window rows. */
-  detailsSection(t, icon, tint, title, status, rows, fullColor = false) {
+  detailsSection(t, icon, tint, title, status, rows, fullColor = false, badge = null) {
     const picture = fullColor
       ? image(icon).w(13).h(13).flex_none()
       : svg(icon).size(13).flex_none().text_color(tint);
@@ -353,6 +384,7 @@ export default class UsageStatus extends View {
       .child(h_flex().gap(6).items_center()
         .child(picture)
         .child(div().text_size(11.5).text_color(t.foreground).child(title))
+        .when(Boolean(badge), (el) => el.child(badge))
         .child(div().flex_1())
         .child(div().max_w(190).truncate().text_size(10).text_color(t.dim).child(status)))
       .children(rows);
@@ -434,7 +466,150 @@ export default class UsageStatus extends View {
     const rows = [];
     if (usage.five_hour) rows.push(this.detailsRow(t, "5-hour", usage.five_hour.utilization, this.resetNote(usage.five_hour)));
     if (usage.seven_day) rows.push(this.detailsRow(t, "7-day", usage.seven_day.utilization, this.resetNote(usage.seven_day)));
-    return rows.length ? this.detailsSection(t, "mods/usage-status/codex.svg", t.muted, "Codex", status, rows) : null;
+    if (!rows.length) return null;
+    if (this.resetsExpanded) rows.push(this.resetsList(t));
+    return this.detailsSection(t, "mods/usage-status/codex.svg", t.muted, "Codex", status, rows, false, this.resetsBadge(t));
+  }
+
+  /** Codex's banked resets that can still be redeemed, soonest to expire first. */
+  codexResets() {
+    const credits = this.providers.codex.data?.reset_credits?.credits ?? [];
+    return credits
+      .filter((credit) => credit.status === "available")
+      .sort((a, b) => (Date.parse(a.expires_at) || Infinity) - (Date.parse(b.expires_at) || Infinity));
+  }
+
+  /** Whether a Codex window is maxed out, so a reset would unblock work now. */
+  codexMaxed() {
+    const usage = this.providers.codex.data;
+    if (!usage) return false;
+    return Boolean(usage.limit_reached) || peakOf(usage.five_hour?.utilization, usage.seven_day?.utilization) >= 100;
+  }
+
+  /**
+   * Badge beside the Codex heading in the usage panel: banked-reset count,
+   * accent-colored while a limit is maxed out. Clicking it shows or hides
+   * the reset cards under the Codex windows.
+   */
+  resetsBadge(t) {
+    const count = this.providers.codex.data?.reset_credits?.available ?? 0;
+    if (count <= 0) return null;
+    const maxed = this.codexMaxed();
+    const open = this.resetsExpanded;
+    const label = `${count} reset${count === 1 ? "" : "s"} banked${maxed ? " · limit reached" : ""}`;
+    const color = maxed ? t.accent : t.muted;
+    return h_flex().id("codex-resets-badge").px(5).py(1).gap(3).rounded(8).items_center().cursor_pointer()
+      .border_1().border_color(open ? color : t.border)
+      .bg(open ? t.hover : t.popover)
+      .hover((el) => el.bg(t.hover))
+      .tooltip(open ? `${label} · hide` : `${label} · show details`)
+      .accessibility_label(label)
+      .role("button")
+      .on_click((_event, cx) => {
+        this.resetsExpanded = !this.resetsExpanded;
+        if (!this.resetsExpanded) this.resetConfirm = null;
+        cx.notify();
+      })
+      .child(svg("mods/usage-status/reset.svg").size(10).flex_none().text_color(color))
+      .child(div().flex_none().text_size(10).text_color(color).child(`${count} reset${count === 1 ? "" : "s"}`));
+  }
+
+  /**
+   * Redeem one banked reset through the Codex CLI, then refresh Codex.
+   * @param {string} id - Reset credit id.
+   * @param {import("gpui-kit").AsyncContext} cx
+   */
+  activateReset(id, cx) {
+    if (this.resetBusy) return;
+    this.resetBusy = id;
+    this.resetConfirm = null;
+    this.resetMessage = null;
+    cx.notify();
+    cx.spawn(async (cx) => {
+      let message;
+      try {
+        const result = await exec("python3", [`${appHome()}/mods/usage-status/codex-reset.py`, id]);
+        const data = JSON.parse(result.stdout || "{}");
+        if (!data.ok) throw new Error(data.error || "Reset request failed");
+        message = RESET_OUTCOMES[data.outcome] ?? { level: "warning", text: `Unexpected outcome: ${data.outcome}` };
+      } catch (error) {
+        message = { level: "error", text: `Reset failed: ${String(error?.message ?? error)}` };
+      }
+      this.resetBusy = null;
+      this.resetMessage = message;
+      notify({ title: "Codex reset", body: message.text, level: message.level, icon: "mods/usage-status/codex.svg" });
+      this.refresh("codex", cx);
+      cx.notify();
+    });
+  }
+
+  /** A small text button for the resets popover. */
+  resetAction(t, id, text, color, onClick, emphasis = false) {
+    return h_flex().id(id).flex_none().px(8).py(2).rounded(4).items_center().cursor_pointer()
+      .border_1().border_color(emphasis ? color : t.border)
+      .hover((el) => el.bg(t.hover))
+      .role("button")
+      .on_click(onClick)
+      .child(div().text_size(10.5).text_color(color).child(text));
+  }
+
+  /**
+   * One banked reset, compact: title with its action, then type and grant
+   * date, then expiry. The description is the card's tooltip. Confirmation
+   * replaces the action with a Cancel/Confirm line.
+   */
+  resetCard(t, credit, index) {
+    const expires = dateLabel(credit.expires_at);
+    const left = resetLabel(credit.expires_at);
+    const granted = dateLabel(credit.granted_at);
+    const soon = Date.parse(credit.expires_at) - Date.now() < 3 * DAY_MS;
+    const busy = this.resetBusy === credit.id;
+    const confirming = this.resetConfirm === credit.id;
+    const unsupported = credit.supported === false;
+    const first = index === 0 && this.codexResets().length > 1;
+
+    let action = null;
+    if (busy) {
+      action = div().flex_none().text_size(10.5).text_color(t.working).child("Activating…");
+    } else if (unsupported) {
+      action = div().flex_none().text_size(10).text_color(t.dim).child("Not on this plan");
+    } else if (!confirming) {
+      action = this.resetAction(t, `reset-activate-${index}`, "Activate", this.resetBusy ? t.dim : t.accent, (_e, cx) => {
+        if (this.resetBusy) return;
+        this.resetConfirm = credit.id;
+        this.resetMessage = null;
+        cx.notify();
+      }, true);
+    }
+
+    const meta = [resetTypeLabel(credit.type), granted ? `granted ${granted}` : null].filter(Boolean).join(" · ");
+    const expiry = expires ? `Expires ${expires}${left ? ` · in ${left}` : ""}${first ? " · first" : ""}` : null;
+
+    return v_flex().id(`reset-card-${index}`).flex_none().gap(2).px(8).py(6).rounded(6).border_1().border_color(confirming ? t.accent : t.border)
+      .when(Boolean(credit.description), (el) => el.tooltip(credit.description))
+      .child(h_flex().gap(6).items_center()
+        .child(div().flex_1().truncate().text_size(11.5).text_color(t.foreground).child(credit.title || "Rate limit reset"))
+        .when(Boolean(action), (el) => el.child(action)))
+      .child(div().truncate().text_size(10.5).text_color(t.dim).child(meta))
+      .when(Boolean(expiry), (el) => el.child(div().truncate().text_size(10.5).text_color(soon ? t.working : t.muted).child(expiry)))
+      .when(confirming, (el) => el.child(h_flex().gap(6).items_center().pt(4)
+        .child(div().flex_1().text_size(10).text_color(t.muted).child(this.codexMaxed() ? "Use this reset now?" : "No limit is maxed. Use it anyway?"))
+        .child(this.resetAction(t, `reset-cancel-${index}`, "Cancel", t.muted, (_e, cx) => { this.resetConfirm = null; cx.notify(); }))
+        .child(this.resetAction(t, `reset-confirm-${index}`, "Confirm", t.accent, (_e, cx) => this.activateReset(credit.id, cx), true))));
+  }
+
+
+  /** The reset cards shown under the Codex windows when the badge is open. */
+  resetsList(t) {
+    const credits = this.codexResets();
+    const banked = this.providers.codex.data?.reset_credits?.available ?? 0;
+    const message = this.resetMessage;
+    const messageColor = message && { success: t.done, info: t.muted, warning: t.working, error: t.blocked }[message.level];
+    return v_flex().gap(6).pt(4).text_size(11)
+      .when(Boolean(message), (el) => el.child(div().text_size(10.5).text_color(messageColor).whitespace_normal().child(message.text)))
+      .children(credits.length
+        ? credits.map((credit, index) => this.resetCard(t, credit, index))
+        : [div().text_color(t.dim).child(banked > 0 ? "Details unavailable right now. Refresh to retry." : "No banked resets")]);
   }
 
   copilotDetails(t) {
@@ -485,7 +660,7 @@ export default class UsageStatus extends View {
    */
   sectionsHeight() {
     const p = this.providers;
-    const ROW = 22, HEAD = 22, GAP = 9, LABEL = 18;
+    const ROW = 22, HEAD = 22, GAP = 9, LABEL = 18, CARD = 80;
     const heights = [];
     const windows = (d) => [d?.five_hour, d?.seven_day].filter(Boolean).length;
     if (p.claude.data && windows(p.claude.data)) heights.push(HEAD + windows(p.claude.data) * ROW);
@@ -498,7 +673,14 @@ export default class UsageStatus extends View {
       }
       if (h) heights.push(HEAD + h);
     }
-    if (p.codex.data && windows(p.codex.data)) heights.push(HEAD + windows(p.codex.data) * ROW);
+    if (p.codex.data && windows(p.codex.data)) {
+      let h = HEAD + windows(p.codex.data) * ROW;
+      if (this.resetsExpanded) {
+        const cards = Math.max(1, this.codexResets().length);
+        h += 4 + cards * (CARD + 6) + (this.resetMessage ? 34 : 0) + (this.resetConfirm ? 30 : 0);
+      }
+      heights.push(h);
+    }
     if (p.copilot.data?.premium) heights.push(HEAD + (p.copilot.data.premium.unlimited ? 0 : ROW));
     if (p.opencode.data?.go) {
       const go = p.opencode.data.go;
@@ -545,7 +727,11 @@ export default class UsageStatus extends View {
     const button = this.usageButton(t);
     const usage = button && Popover.new("usage-details")
       .open(this.detailsOpen)
-      .on_open_change((open, cx) => { this.detailsOpen = open; cx.notify(); })
+      .on_open_change((open, cx) => {
+        this.detailsOpen = open;
+        if (!open) this.resetConfirm = null;
+        cx.notify();
+      })
       .anchor("bottom_left")
       .trigger(button)
       .content(this.detailsPanel(t));

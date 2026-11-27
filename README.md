@@ -10,9 +10,17 @@ One compact usage gauge in Herdr's bottom status bar. Click it for a small panel
 - **Antigravity** — Gemini 5-hour/weekly, Claude/GPT 5-hour/weekly, and Gemini 4 Argon weekly. Runs the read-only `agy -p "/usage"` command.
 - **GitHub Copilot** — premium-request quota, used/entitlement.
 - **OpenCode Go** — rolling, weekly, and monthly allowances from the local OpenCode service.
-- **Codex** — 5-hour and 7-day windows when `~/.codex/auth.json` has a valid ChatGPT session; otherwise hidden.
+- **Codex** — 5-hour and 7-day windows when `~/.codex/auth.json` has a valid ChatGPT session; otherwise hidden. Also banked rate-limit resets (see below).
 
 The gauge color follows the fullest provider: normal, yellow at 70%+, red at 90%+. Hovering shows a one-line summary; clicking opens the panel with used percentages, bars, `% left`, reset times, and `live` / `cached` / `stale` status. The refresh icon in the panel header spins while any provider is fetching and re-runs every provider when clicked.
+
+## Banked Codex resets
+
+When Codex has banked rate-limit resets, the Codex heading in the usage panel gets a small badge with the count (accent-colored while a Codex limit is maxed out). Clicking the badge expands one card per reset under the Codex windows: title, type, expiry (date and countdown, soonest first), grant date, and description. **Activate** asks for confirmation, then redeems that reset.
+
+- The count and details come from `wham/usage` and `wham/rate-limit-reset-credits` (read by `codex-usage.py`, only when the count is above zero).
+- Activation runs `codex-reset.py <credit-id>`, which starts `codex app-server` and sends `account/rateLimitResetCredit/consume`, the same request the Codex TUI makes. The Codex CLI handles auth, so the `codex` binary must be installed.
+- The outcome (`reset`, `nothingToReset`, `noCredit`, `alreadyRedeemed`) shows above the cards and as a toast, and Codex usage refreshes right after.
 
 ## Mods button
 

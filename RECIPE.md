@@ -15,6 +15,7 @@ The panel shows one line per limit window:
 - **GitHub Copilot** — premium requests used / entitlement.
 - **OpenCode Go** — rolling, weekly, monthly.
 - **Codex** — 5-hour / 7-day when a valid session exists. Hidden otherwise.
+- **Banked Codex resets** — a badge with the count beside the Codex heading in the usage panel (accent-colored while a Codex limit is maxed). Clicking it expands each reset (title, type, expiry, grant date) with a confirm-then-Activate button.
 
 Rows use theme colors and the same green/yellow/red thresholds. The panel is compact, one line per window, and scrolls only if a provider adds many windows.
 
@@ -37,9 +38,10 @@ With the optional `mod-manager` mod installed, a puzzle icon left of the gauge o
 - `usage.py` — Claude: Keychain token + `https://api.anthropic.com/api/oauth/usage`, cache, 429 handling.
 - `antigravity-usage.py` — runs `agy -p "/usage"`, parses tab-separated quota rows, selects Gemini Models as primary and keeps Claude/GPT and Argon as extra groups.
 - `copilot-usage.mjs` — starts the Copilot CLI SDK, calls `account.getQuota`, returns the premium-request snapshot.
-- `codex-usage.py` — `GET https://chatgpt.com/backend-api/wham/usage` with the local Codex OAuth token, handles current and legacy window shapes, caches, never refreshes the token.
+- `codex-usage.py` — `GET https://chatgpt.com/backend-api/wham/usage` with the local Codex OAuth token, handles current and legacy window shapes, caches, never refreshes the token. When `rate_limit_reset_credits.available_count` > 0 it also reads `GET wham/rate-limit-reset-credits` for each reset's details.
+- `codex-reset.py <credit-id>` — redeems one reset by running `codex app-server` and sending `account/rateLimitResetCredit/consume` (with a fresh UUID idempotency key), so the Codex CLI handles auth.
 - OpenCode — `opencode api GET /api/experimental/usage/limits`.
-- `gauge.svg` is the status-bar icon, `refresh.svg` the panel refresh control, and `codex.svg` the Codex glyph, `puzzle.svg` the Mods button.
+- `gauge.svg` is the status-bar icon, `refresh.svg` the panel refresh control, and `codex.svg` the Codex glyph, `puzzle.svg` the Mods button, `reset.svg` the banked-resets badge in the Codex section.
 - `herdr` APIs: `exec`, `appHome`, `theme`, `spaces`, `agents`, `window`, `keys`, `run`; `Popover` from `gpui-base`.
 - The personal layout `werlang.json` points the `status` block at `usage-status`.
 
